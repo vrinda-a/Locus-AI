@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Locus AI — Infrastructure Site Analytics</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.min.css">
+<style>
+  :root{
+    --bg:#0C0F14; --panel:#131822; --panel2:#0F141D; --line:#232B3A; --line-soft:#1A2130;
+    --text:#D7DEE9; --muted:#7C8798; --faint:#535E70;
+    --amber:#FFB020; --amber-dim:#8A6210; --green:#3ECF8E; --red:#F0565E; --blue:#4A90D9;
+    --mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,Menlo,monospace;
+    --sans:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;width:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:13px}
+  button{font-family:inherit;color:inherit;background:none;border:none;cursor:pointer}
+  input,textarea,select{font-family:inherit;font-size:12px;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:6px 8px;outline:none;width:100%}
+  input:focus,textarea:focus,select:focus{border-color:var(--amber)}
+  :focus-visible{outline:2px solid var(--amber);outline-offset:1px}
+  ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}::-webkit-scrollbar-track{background:transparent}
+
+  #app{display:flex;flex-direction:column;height:100vh;width:100vw}
+
+  /* ── Top bar ─────────────────────────────── */
+  #topbar{height:48px;flex:0 0 48px;display:flex;align-items:center;gap:16px;padding:0 14px;background:var(--panel);border-bottom:1px solid var(--line);z-index:1200}
+  .brand{display:flex;align-items:center;gap:9px;user-select:none}
+  .brand .reticle{width:20px;height:20px;flex:0 0 20px}
+  .brand .word{font-weight:700;letter-spacing:.22em;font-size:14px}
+  .brand .word em{font-style:normal;color:var(--amber)}
+  .brand .tag{font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.08em;margin-left:2px}
+  #project-select{width:200px}
+  .top-metrics{display:flex;gap:18px;margin-left:auto;align-items:center}
+  .metric{display:flex;flex-direction:column;align-items:flex-end;line-height:1.25}
+  .metric .k{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+  .metric .v{font-family:var(--mono);font-size:12px;color:var(--text)}
+  .metric .v .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:5px;vertical-align:1px}
+  .metric .v .dot.warn{background:var(--amber)}
+  #user-chip{display:flex;align-items:center;gap:8px;padding:4px 10px;border:1px solid var(--line);border-radius:16px;background:var(--panel2)}
+  #user-chip .avatar{width:20px;height:20px;border-radius:50%;background:linear-gradient(135deg,var(--amber),#c47500);color:#151004;font-weight:700;font-size:10px;display:flex;align-items:center;justify-content:center}
+  #user-chip .name{font-size:12px}
+  #user-chip .role{font-family:var(--mono);font-size:9px;color:var(--faint)}
+
+  /* ── Body columns ────────────────────────── */
+  #cols{flex:1;display:flex;min-height:0}
+  #left{width:320px;flex:0 0 320px;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  #right{width:384px;flex:0 0 384px;background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  #map-wrap{flex:1;position:relative;min-width:0}
+  #map{position:absolute;inset:0;background:#05070a}
+  .panel-scroll{flex:1;overflow-y:auto;min-height:0}
+  .panel-head{padding:10px 14px 8px;border-bottom:1px solid var(--line-soft)}
+  .panel-head h2{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .panel-head .sub{font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:2px}
+
+  /* ── Accordions / layer rows ─────────────── */
+  .acc{border-bottom:1px solid var(--line-soft)}
+  .acc-btn{width:100%;display:flex;align-items:center;gap:8px;padding:10px 14px;text-align:left}
+  .acc-btn:hover{background:var(--panel2)}
+  .acc-btn .idx{font-family:var(--mono);font-size:10px;color:var(--amber-dim);width:22px}
+  .acc-btn .t{font-size:12px;font-weight:600;letter-spacing:.02em;flex:1}
+  .acc-btn .chev{color:var(--faint);font-size:10px;transition:transform .15s}
+  .acc.open .chev{transform:rotate(90deg)}
+  .acc-body{display:none;padding:2px 14px 12px}
+  .acc.open .acc-body{display:block}
+
+  .layer-row{display:flex;align-items:center;gap:9px;padding:6px 0}
+  .swatch{width:14px;height:14px;flex:0 0 14px;border-radius:2px;position:relative}
+  .swatch.line-sw{height:3px;border-radius:1px;margin:5px 0}
+  .swatch.dash-sw{height:0;border-top:3px dashed #555a60;background:none;margin:5px 0}
+  .swatch.sq{border-radius:1px}
+  .layer-row .lbl{flex:1;font-size:12px}
+  .layer-row .cnt{font-family:var(--mono);font-size:10px;color:var(--faint);min-width:34px;text-align:right}
+  .layer-row .st{font-family:var(--mono);font-size:9px;min-width:8px}
+  .st.ok{color:var(--green)} .st.demo{color:var(--amber)} .st.err{color:var(--red)} .st.load{color:var(--muted)}
+
+  .switch{position:relative;width:30px;height:16px;flex:0 0 30px;border-radius:9px;background:var(--line);transition:background .15s}
+  .switch::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--muted);transition:all .15s}
+  .switch.on{background:var(--amber-dim)}
+  .switch.on::after{left:16px;background:var(--amber)}
+
+  .slider-row{padding:8px 0 4px}
+  .slider-row .sl-head{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
+  .slider-row .sl-head b{font-family:var(--mono);color:var(--amber);font-weight:600}
+  input[type=range]{-webkit-appearance:none;appearance:none;height:3px;background:var(--line);border:none;padding:0;border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:var(--amber);border:2px solid #0C0F14;cursor:pointer}
+  input[type=range]::-moz-range-thumb{width:11px;height:11px;border-radius:50%;background:var(--amber);border:2px solid #0C0F14;cursor:pointer}
+
+  .hint{font-size:11px;color:var(--faint);line-height:1.5;padding:4px 0}
+  .field{margin:8px 0}
+  .field label{display:block;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+  .inline-2{display:flex;gap:8px}.inline-2>*{flex:1}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:7px 12px;border:1px solid var(--line);border-radius:4px;background:var(--panel2);font-size:12px;font-weight:600;transition:border-color .12s}
+  .btn:hover{border-color:var(--amber)}
+  .btn.primary{background:var(--amber);border-color:var(--amber);color:#171004}
+  .btn.primary:hover{filter:brightness(1.08)}
+  .btn.danger:hover{border-color:var(--red);color:var(--red)}
+  .btn.block{width:100%}
+  .btn.sm{padding:4px 8px;font-size:11px;font-weight:500}
+
+  /* ── Map furniture ───────────────────────── */
+  #coord-strip{position:absolute;left:0;right:0;bottom:0;z-index:1000;display:flex;gap:18px;align-items:center;padding:5px 12px;background:rgba(12,15,20,.82);backdrop-filter:blur(3px);border-top:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--muted);pointer-events:none}
+  #coord-strip b{color:var(--text);font-weight:500}
+  #fetch-banner{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1000;background:rgba(19,24,34,.94);border:1px solid var(--line);border-radius:4px;padding:6px 14px;font-family:var(--mono);font-size:11px;color:var(--amber);display:none}
+  .leaflet-container{font-family:var(--sans)}
+  .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--panel);color:var(--text);border:1px solid var(--line)}
+  .leaflet-popup-content{font-size:12px;margin:10px 12px}
+  .leaflet-bar a{background:var(--panel);color:var(--text);border-bottom:1px solid var(--line)}
+  .leaflet-bar a:hover{background:var(--panel2)}
+  .sub-icon{width:12px;height:12px;background:#FF7A1A;border:1.5px solid #1a0d00;box-shadow:0 0 6px rgba(255,122,26,.8)}
+  .plant-icon{width:13px;height:13px;background:#c92cd6;border-radius:50%;border:1.5px solid #21031f}
+  .wh-icon{width:11px;height:11px;background:#39c2ff;border-radius:2px;border:1.5px solid #062231;transform:rotate(45deg)}
+  .apt-icon,.port-icon{font-size:13px;line-height:1;text-shadow:0 0 4px #000}
+  .pin-icon{font-size:20px;line-height:1;filter:drop-shadow(0 1px 2px #000)}
+  .marker-cluster-small,.marker-cluster-medium,.marker-cluster-large{background:rgba(255,176,32,.25)!important}
+  .marker-cluster-small div,.marker-cluster-medium div,.marker-cluster-large div{background:rgba(255,176,32,.85)!important;color:#171004!important;font-family:var(--mono);font-weight:700}
+
+  /* ── Right panel ─────────────────────────── */
+  .sect{border-bottom:1px solid var(--line-soft);padding:12px 14px}
+  .sect h3{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:7px}
+  .sect h3 .n{font-family:var(--mono);color:var(--amber-dim)}
+  .kv{display:grid;grid-template-columns:1fr auto;gap:3px 12px;font-size:12px}
+  .kv .k{color:var(--muted)}
+  .kv .v{font-family:var(--mono);text-align:right;color:var(--text);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .empty{font-size:11px;color:var(--faint);line-height:1.6;padding:6px 0}
+  #gauge-wrap{display:flex;flex-direction:column;align-items:center;padding:2px 0 6px}
+  #gauge-verdict{font-family:var(--mono);font-size:10px;letter-spacing:.14em;margin-top:-4px}
+  .dep{margin:7px 0}
+  .dep .dep-head{display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px}
+  .dep .dep-head .dn{color:var(--text)}
+  .dep .dep-head .dv{font-family:var(--mono);color:var(--muted);font-size:10px}
+  .dep .bar{height:5px;background:var(--line-soft);border-radius:3px;overflow:hidden}
+  .dep .bar i{display:block;height:100%;border-radius:3px;background:var(--amber);transition:width .4s}
+  .dep.bad .bar i{background:var(--red)}
+  .dep.good .bar i{background:var(--green)}
+
+  .site-item{border:1px solid var(--line-soft);border-radius:5px;padding:8px 10px;margin-bottom:8px;cursor:pointer;transition:border-color .12s}
+  .site-item:hover{border-color:var(--amber)}
+  .site-item.active{border-color:var(--amber);background:var(--panel2)}
+  .site-item .r1{display:flex;align-items:center;gap:8px}
+  .site-item .nm{font-weight:600;font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .site-item .score-chip{font-family:var(--mono);font-size:11px;font-weight:700;padding:1px 7px;border-radius:3px;background:var(--line-soft)}
+  .site-item .r2{display:flex;gap:10px;margin-top:3px;font-family:var(--mono);font-size:10px;color:var(--faint)}
+  .badge{font-size:9px;letter-spacing:.08em;text-transform:uppercase;padding:1px 6px;border-radius:3px;border:1px solid var(--line)}
+  .badge.review{color:var(--amber);border-color:var(--amber-dim)}
+  .badge.approved{color:var(--green);border-color:#1d5c41}
+  .badge.rejected{color:var(--red);border-color:#5c2326}
+  .badge.prospect{color:var(--muted)}
+  #storage-mode{font-family:var(--mono);font-size:9px;color:var(--faint)}
+  .toast{position:fixed;bottom:44px;left:50%;transform:translateX(-50%);z-index:3000;background:var(--panel);border:1px solid var(--amber);color:var(--text);border-radius:5px;padding:8px 16px;font-size:12px;opacity:0;transition:opacity .25s;pointer-events:none}
+  .toast.show{opacity:1}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+  @media (max-width:1100px){#left{width:260px;flex-basis:260px}#right{width:320px;flex-basis:320px}}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ═══ TOP NAVIGATION ═══ -->
+  <header id="topbar">
+    <div class="brand" title="Locus AI">
+      <svg class="reticle" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <circle cx="10" cy="10" r="7" stroke="#FFB020" stroke-width="1.4"/>
+        <circle cx="10" cy="10" r="1.6" fill="#FFB020"/>
+        <path d="M10 0v4M10 16v4M0 10h4M16 10h4" stroke="#FFB020" stroke-width="1.4"/>
+      </svg>
+      <span class="word">LOC<em>U</em>S</span>
+      <span class="tag">SITE·INTEL v1.0</span>
+    </div>
+    <select id="project-select" aria-label="Project">
+      <option>SE Corridor — Data Center Search</option>
+      <option>Gulf Ports Logistics Screen</option>
+      <option>Piedmont Rail-Served Parcels</option>
+    </select>
+    <div class="top-metrics">
+      <div class="metric"><span class="k">Grid Sources</span><span class="v" id="m-sources"><span class="dot"></span>0 / 12 online</span></div>
+      <div class="metric"><span class="k">Features Indexed</span><span class="v" id="m-features">0</span></div>
+      <div class="metric"><span class="k">Saved Sites</span><span class="v" id="m-saved">0</span></div>
+      <div id="user-chip">
+        <div class="avatar">JR</div>
+        <div><div class="name">J. Reyes</div><div class="role">ANALYST · INFRA-01</div></div>
+      </div>
+    </div>
+  </header>
+
+  <div id="cols">
+
+    <!-- ═══ LEFT: DATA LAYERS & FILTERS ═══ -->
+    <aside id="left" aria-label="Data layers and filters">
+      <div class="panel-head">
+        <h2>Data Layers &amp; Query Filters</h2>
+        <div class="sub" id="viewport-note">Feeds query the current viewport</div>
+      </div>
+      <div class="panel-scroll" id="acc-root">
+
+        <section class="acc open" data-acc>
+          <button class="acc-btn" aria-expanded="true"><span class="idx">01</span><span class="t">Power &amp; Energy Grid</span><span class="chev">▶</span></button>
+          <div class="acc-body">
+            <div class="layer-row" data-layer="transmission">
+              <span class="swatch line-sw" style="background:#EAFF00;box-shadow:0 0 5px #EAFF00"></span>
+              <span class="lbl">Transmission Lines</span><span class="st" data-st>·</span><span class="cnt" data-cnt>—</span>
+              <button class="switch" role="switch" aria-checked="false" aria-label="Toggle transmission lines"></button>
+            </div>
+            <div class="slider-row">
+              <div class="sl-head"><span>Min voltage</span><b id="kv-val">115 kV</b></div>
+              <input type="range" id="kv-slider" min="0" max="765" step="5" value="115" aria-label="Minimum transmission voltage">
+            </div>
+            <div class="layer-row" data-layer="substations">
+              <span class="swatch sq" style="background:#FF7A1A;box-shadow:0 0 5px rgba(255,122,26,.7)"></span>
+              <span class="lbl">Substations</span><span class="st" data-st>·</span><span class="cnt" data-cnt>—</span>
+              <button class="switch" role="switch" aria-checked="false" aria-label="Toggle substations"></button>
+            </div>
+            <div class="layer-row" data-layer="plants">
+              <span class="swatch" style="background:#c92cd6;border-radius:50%"></span>
+              <span class="lbl">Generation Plants</span><span class="st" data-st>·</span><span class="cnt" data-cnt>—</span>
+              <button class="switch" role="switch" aria-checked="false" aria-label="Toggle generation plants"></button>
+            </div>
+          </div>
+        </section>
+
+        <section class="acc" data-acc>
+          <button class="acc-btn" aria-expanded="false"><span class="idx">02</span><span class="t">Logistics &amp; Freight</span><span class="chev">▶</span></button>
+          <div class="acc-body">
+            <div class="layer-row" data-layer="rail">
+              <span class="swatch dash-sw"></span>
+              <span class="lbl">Class I Railroads</span><span class="st" data-st>·</span><span class="cnt" data-cnt>—</span>
+              <button class="switch" role="switch" aria-checked="false" aria-label="Toggle railroads"></button>
+            </div>
+            <div class="layer-row" data-layer="airports">
+              <span class="swatch" style="background:none;text-align:center;font-size:12px;line-height:14px">✈</span>
+              <span class="lbl">Freight Airports</span><span class="st" data-st>·</span><span class="cnt" data-cnt>—</span>
+              <button class="switch" role="switch" aria-checked="false" aria-label="Toggle airports"></button>
+            </div>
+            <div class="layer-row" data-layer="ports">
+              <span class="swatch" style="background:none;text-align:center;font-size:12px;line-height:14px">⚓</span>
+              <span class="lbl">Marine Ports</span><span class="st" data-st>·</span><span class="cnt" data-cnt>—</span>
+              <button class="switch" role="switch" aria-checked="false" aria-label="Toggle marine ports"></button>
+            </div>
+            <div class="layer-row" data-layer="warehouses">
+              <span class="swatch" style="background:#39c2ff;transform:rotate(45deg);width:11px;height:11px"></span>
+              <span class="lbl">Logistics Warehouses <span style="color:var(--faint);font-size:10px">(OSM)</span></span><span class="st" data-st>·</span><span class="cnt" data-cnt>—</span>
+              <button class="switch" role="switch" aria-checked="false" aria-label="Toggle warehouses"></button>
+            </div>
+            <div class="layer-row" data-layer="industrial">
+              <span class="swatch" style="background:rgba(160,120,255,.5);border:1px solid #a078ff"></span>
+              <span class="lbl">Industrial Zoning <span style="color:var(--faint);font-size:10px">(OSM)</span></span><span class="st" data-st>·</span><span class="cnt" data-cnt>—</span>
+              <button class="switch" role="switch" aria-checked="false" aria-label="Toggle industrial zoning"></button>
+            </div>
+          </div>
+        </section>
+
+        <section class="acc" data-acc>
+          <button class="acc-btn" aria-expanded="false"><span class="idx">03</span><span class="t">Risk &amp; Constraints</span><span class="chev">▶</span></button>
+          <div class="acc-body">
+            <div class="layer-row" data-layer="flood">
+              <span class="swatch" style="background:rgba(74,144,217,.5);border:1px solid #4A90D9"></span>
+              <span class="lbl">FEMA Flood Hazard</span><span class="st" data-st>·</span><span class="cnt" data-cnt>—</span>
+              <button class="switch" role="switch" aria-checked="false" aria-label="Toggle FEMA flood zones"></button>
+            </div>
+            <div class="layer-row" data-layer="faults">
+              <span class="swatch line-sw" style="background:#F0565E"></span>
+              <span class="lbl">USGS Fault Lines</span><span class="st" data-st>·</span><span class="cnt" data-cnt>—</span>
+              <button class="switch" role="switch" aria-checked="false" aria-label="Toggle fault lines"></button>
+            </div>
+            <div class="layer-row" data-layer="aquifer">
+              <span class="swatch" style="background:rgba(240,86,94,.35);border:1px dashed #F0565E"></span>
+              <span class="lbl">Aquifer Scarcity Index</span><span class="st" data-st>·</span><span class="cnt" data-cnt>—</span>
+              <button class="switch" role="switch" aria-checked="false" aria-label="Toggle aquifer scarcity"></button>
+            </div>
+            <div class="hint">Risk layers subtract from the Locus score. Flood polygons render at 0.35 fill per NFHL cartography.</div>
+          </div>
+        </section>
+
+        <section class="acc" data-acc>
+          <button class="acc-btn" aria-expanded="false"><span class="idx">04</span><span class="t">Custom Spatial Query</span><span class="chev">▶</span></button>
+          <div class="acc-body">
+            <div class="field">
+              <label for="q-dist">Within distance of substation</label>
+              <div class="inline-2">
+                <input type="number" id="q-dist" min="0.5" step="0.5" value="5" aria-label="Distance in miles">
+                <select id="q-unit"><option value="mi">miles</option><option value="km">km</option></select>
+              </div>
+            </div>
+            <div class="field">
+              <label for="q-kv">Substation min voltage (kV)</label>
+              <input type="number" id="q-kv" min="0" step="5" value="115">
+            </div>
+            <div class="layer-row" style="padding:4px 0 8px">
+              <span class="lbl">Exclude 100-yr floodplain</span>
+              <button class="switch on" id="q-flood" role="switch" aria-checked="true" aria-label="Exclude floodplains"></button>
+            </div>
+            <button class="btn primary block" id="q-run">Run spatial query</button>
+            <button class="btn block sm" id="q-clear" style="margin-top:6px">Clear query overlay</button>
+            <div class="hint" id="q-result">Draws qualifying buffers around substations that meet the voltage floor; flags saved sites in or out of criteria.</div>
+          </div>
+        </section>
+
+      </div>
+    </aside>
+
+    <!-- ═══ CENTER: MAP CANVAS ═══ -->
+    <main id="map-wrap">
+      <div id="map" role="application" aria-label="Satellite analysis map"></div>
+      <div id="fetch-banner">FETCHING LAYER DATA…</div>
+      <div id="coord-strip">
+        <span>LAT <b id="c-lat">—</b></span>
+        <span>LNG <b id="c-lng">—</b></span>
+        <span>ZOOM <b id="c-zoom">—</b></span>
+        <span style="margin-left:auto" id="c-src">ESRI WORLD IMAGERY · HIFLD · FEMA NFHL · OSM</span>
+      </div>
+    </main>
+
+    <!-- ═══ RIGHT: ANALYTICS & SAVED ASSETS ═══ -->
+    <aside id="right" aria-label="Site analytics and saved assets">
+      <div class="panel-scroll">
+
+        <div class="sect" id="inspector-sect">
+          <h3><span class="n">A</span> Active Feature Inspector</h3>
+          <div id="inspector"><div class="empty">Click any substation, line, plant, port, or parcel point on the map to parse its raw attributes here.</div></div>
+        </div>
+
+        <div class="sect">
+          <h3><span class="n">B</span> Locus Site Scoring</h3>
+          <div id="gauge-wrap">
+            <svg id="gauge" width="190" height="112" viewBox="0 0 190 112" aria-label="Feasibility gauge"></svg>
+            <div id="gauge-verdict" style="color:var(--faint)">AWAITING TARGET</div>
+          </div>
+          <div id="score-deps"><div class="empty">Click a candidate location on the map to compute grid, logistics, and risk dependencies.</div></div>
+          <button class="btn primary block" id="save-site-btn" style="margin-top:10px;display:none">＋ Save this site</button>
+        </div>
+
+        <div class="sect" style="border-bottom:none">
+          <h3><span class="n">C</span> Saved Sites <span style="margin-left:auto" id="storage-mode">—</span></h3>
+          <div id="sites-list"><div class="empty">No sites saved yet. Score a location, then save it to build your evaluation registry.</div></div>
+          <div id="site-editor" style="display:none;margin-top:10px;border-top:1px solid var(--line-soft);padding-top:10px">
+            <div class="field"><label for="ed-name">Site name</label><input id="ed-name"></div>
+            <div class="inline-2">
+              <div class="field"><label for="ed-type">Type</label>
+                <select id="ed-type"><option>Data Center</option><option>Logistics Hub</option><option>Manufacturing</option><option>Port Terminal</option></select>
+              </div>
+              <div class="field"><label for="ed-status">Status</label>
+                <select id="ed-status"><option>Prospect</option><option>Under Review</option><option>Approved</option><option>Rejected</option></select>
+              </div>
+            </div>
+            <div class="field"><label for="ed-notes">Notes &amp; metadata</label><textarea id="ed-notes" rows="3" placeholder="Fiber provider on-site, dual-feed available, seller motivated…"></textarea></div>
+            <div class="inline-2">
+              <button class="btn primary" id="ed-save">Save changes</button>
+              <button class="btn danger" id="ed-delete">Delete site</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </aside>
+
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+<script>
+"use strict";
+/* ════════════════════════════════════════════════════════════════
+   LOCUS AI — client application
+   Sections: CONFIG · DEMO DATA · STORAGE · MAP · LAYERS · INSPECTOR
+             SCORING · SPATIAL QUERY · SAVED SITES · BOOT
+   ════════════════════════════════════════════════════════════════ */
+
+/* ── CONFIG ─────────────────────────────────────────────────────── */
+const HIFLD = "https://services1.arcgis.com/Hp6G80Pky0om7QvQ/arcgis/rest/services";
+const CONFIG = {
+  apiBase: window.LOCUS_API_BASE || null,   // set to "http://localhost:3001" to use the Express/Postgres backend
+  maxRecords: 400,                          // per-viewport cap on ArcGIS pulls
+  endpoints: {
+    transmission: HIFLD + "/Electric_Power_Transmission_Lines/FeatureServer/0/query",
+    substations:  HIFLD + "/Electric_Substations/FeatureServer/0/query",
+    plants:       HIFLD + "/Power_Plants/FeatureServer/0/query",
+    rail:         HIFLD + "/Railroads/FeatureServer/0/query",
+    airports:     HIFLD + "/Airports/FeatureServer/0/query",
+    ports:        HIFLD + "/Ports/FeatureServer/0/query",
+    flood:        "https://hazards.fema.gov/gis/nfhl/rest/services/public/NFHL/MapServer/28/query",
+    faults:       "https://earthquake.usgs.gov/arcgis/rest/services/haz/hazfaults2014/MapServer/0/query",
+    overpass:     "https://overpass-api.de/api/interpreter"
+  }
+};
+
+/* ── DEMO DATA (fallback when live feeds are unreachable) ───────── */
+/* Compact, hand-built GeoJSON around North Florida so the app is
+   fully interactive even inside sandboxed previews. Marked "DEMO". */
+const DEMO = {
+  substations: fc([
+    pt(-82.284,29.673,{NAME:"Archer Substation",MAX_VOLT:230,STATUS:"IN SERVICE",OWNER:"Duke Energy FL",TYPE:"SUBSTATION"}),
+    pt(-82.393,29.652,{NAME:"Parker Rd Substation",MAX_VOLT:115,STATUS:"IN SERVICE",OWNER:"GRU",TYPE:"SUBSTATION"}),
+    pt(-82.145,29.789,{NAME:"Waldo Junction",MAX_VOLT:138,STATUS:"IN SERVICE",OWNER:"FPL",TYPE:"SUBSTATION"}),
+    pt(-81.712,29.648,{NAME:"Palatka North",MAX_VOLT:230,STATUS:"IN SERVICE",OWNER:"Seminole Electric",TYPE:"SUBSTATION"}),
+    pt(-81.655,30.310,{NAME:"Jacksonville Westside",MAX_VOLT:500,STATUS:"IN SERVICE",OWNER:"JEA",TYPE:"SUBSTATION"}),
+    pt(-82.110,29.187,{NAME:"Ocala Silver Springs",MAX_VOLT:230,STATUS:"IN SERVICE",OWNER:"Duke Energy FL",TYPE:"SUBSTATION"})
+  ]),
+  transmission: fc([
+    ln([[-82.284,29.673],[-82.145,29.789],[-81.655,30.310]],{OWNER:"FPL / JEA",VOLTAGE:230,STATUS:"IN SERVICE",TYPE:"AC; OVERHEAD"}),
+    ln([[-82.284,29.673],[-82.110,29.187]],{OWNER:"Duke Energy FL",VOLTAGE:230,STATUS:"IN SERVICE",TYPE:"AC; OVERHEAD"}),
+    ln([[-82.393,29.652],[-82.284,29.673]],{OWNER:"GRU",VOLTAGE:115,STATUS:"IN SERVICE",TYPE:"AC; OVERHEAD"}),
+    ln([[-81.712,29.648],[-81.655,30.310]],{OWNER:"Seminole Electric",VOLTAGE:500,STATUS:"IN SERVICE",TYPE:"AC; OVERHEAD"})
+  ]),
+  plants: fc([
+    pt(-82.361,29.628,{NAME:"Deerhaven Generating Station",PRIM_FUEL:"Natural Gas",OPER_CAP:460,OPERATOR:"GRU",TYPE:"PLANT"}),
+    pt(-81.640,29.735,{NAME:"Seminole Generating Station",PRIM_FUEL:"Coal/Gas",OPER_CAP:1300,OPERATOR:"Seminole Electric",TYPE:"PLANT"})
+  ]),
+  rail: fc([
+    ln([[-82.110,29.187],[-82.32,29.65],[-82.15,29.94],[-81.66,30.32]],{RROWNER:"CSX Transportation",CLASS:"Class I",STATUS:"Active"}),
+    ln([[-82.393,29.652],[-82.05,29.72],[-81.71,29.65]],{RROWNER:"Florida Northern (FCEN)",CLASS:"Shortline",STATUS:"Active"})
+  ]),
+  airports: fc([
+    pt(-82.272,29.690,{NAME:"Gainesville Regional (GNV)",TYPE:"AIRPORT",CARGO:"Regional freight",OWNER:"GACRA"}),
+    pt(-81.688,30.494,{NAME:"Jacksonville Intl (JAX)",TYPE:"AIRPORT",CARGO:"Air cargo hub",OWNER:"JAA"})
+  ]),
+  ports: fc([
+    pt(-81.624,30.406,{NAME:"JAXPORT — Blount Island",TYPE:"MARINE PORT",HARBOR:"Deepwater 47 ft",OPERATOR:"Jacksonville Port Authority"})
+  ]),
+  flood: fc([
+    pg([[-82.05,29.66],[-81.95,29.72],[-81.86,29.66],[-81.90,29.57],[-82.02,29.58],[-82.05,29.66]],{FLD_ZONE:"AE",ZONE_SUBTY:"1% ANNUAL CHANCE FLOOD",SFHA_TF:"T"}),
+    pg([[-82.44,29.60],[-82.40,29.64],[-82.35,29.60],[-82.39,29.55],[-82.44,29.60]],{FLD_ZONE:"A",ZONE_SUBTY:"1% ANNUAL CHANCE FLOOD",SFHA_TF:"T"})
+  ]),
+  faults: fc([]),
+  aquifer: fc([
+    pg([[-82.55,29.45],[-82.30,29.50],[-82.28,29.35],[-82.52,29.32],[-82.55,29.45]],{INDEX:"Moderate stress",SOURCE:"Floridan Aquifer (demo)"})
+  ]),
+  warehouses: fc([
+    pt(-82.337,29.628,{name:"Distribution Center — SW 34th",building:"warehouse"}),
+    pt(-81.700,30.330,{name:"Westside Industrial Park DC",building:"warehouse"})
+  ]),
+  industrial: fc([
+    pg([[-82.36,29.62],[-82.33,29.63],[-82.32,29.61],[-82.35,29.60],[-82.36,29.62]],{landuse:"industrial",name:"Airport Industrial Park (demo)"}) 
+  ])
+};
+function fc(features){return {type:"FeatureCollection",features};}
+function pt(lng,lat,properties){return {type:"Feature",geometry:{type:"Point",coordinates:[lng,lat]},properties};}
+function ln(coords,properties){return {type:"Feature",geometry:{type:"LineString",coordinates:coords},properties};}
+function pg(ring,properties){return {type:"Feature",geometry:{type:"Polygon",coordinates:[ring]},properties};}
+
+/* ── STORAGE ADAPTER ────────────────────────────────────────────
+   Priority: Express/Postgres backend → artifact persistent storage
+   (window.storage) → in-memory. Same async interface either way.  */
+const Store = (() => {
+  const KEY = "locus:sites";
+  let mem = [];
+  const hasWS = typeof window.storage?.get === "function";
+  const mode = CONFIG.apiBase ? "API" : hasWS ? "PERSISTENT" : "SESSION";
+
+  async function list(){
+    if (CONFIG.apiBase){
+      const r = await fetch(CONFIG.apiBase + "/api/sites?userId=1"); return r.json();
+    }
+    if (hasWS){
+      try { const r = await window.storage.get(KEY); return r ? JSON.parse(r.value) : []; }
+      catch { return []; }
+    }
+    return mem;
+  }
+  async function persist(all){
+    if (hasWS){ try { await window.storage.set(KEY, JSON.stringify(all)); } catch(e){ console.error(e); } }
+    mem = all;
+  }
+  async function create(site){
+    if (CONFIG.apiBase){
+      const r = await fetch(CONFIG.apiBase + "/api/sites",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(site)});
+      return r.json();
+    }
+    const all = await list();
+    site.id = Date.now(); site.saved_at = new Date().toISOString();
+    all.unshift(site); await persist(all); return site;
+  }
+  async function update(id, patch){
+    if (CONFIG.apiBase){
+      const r = await fetch(CONFIG.apiBase + "/api/sites/" + id,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(patch)});
+      return r.json();
+    }
+    const all = await list();
+    const i = all.findIndex(s => s.id === id);
+    if (i > -1){ all[i] = {...all[i], ...patch}; await persist(all); return all[i]; }
+  }
+  async function remove(id){
+    if (CONFIG.apiBase){ await fetch(CONFIG.apiBase + "/api/sites/" + id,{method:"DELETE"}); return; }
+    await persist((await list()).filter(s => s.id !== id));
+  }
+  return { list, create, update, remove, mode };
+})();
+
+/* ── MAP ENGINE ─────────────────────────────────────────────────── */
+const map = L.map("map",{ zoomControl:true, attributionControl:true, minZoom:3 })
+  .setView([29.652, -82.325], 9); // Gainesville, FL region
+
+L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{
+  maxZoom:19, attribution:"Imagery © Esri, Maxar, Earthstar Geographics"
+}).addTo(map);
+L.tileLayer("https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",{
+  maxZoom:19, pane:"shadowPane", attribution:"Labels © Esri"
+}).addTo(map);
+
+map.on("mousemove", e => {
+  document.getElementById("c-lat").textContent = e.latlng.lat.toFixed(5);
+  document.getElementById("c-lng").textContent = e.latlng.lng.toFixed(5);
+});
+map.on("zoomend", () => document.getElementById("c-zoom").textContent = map.getZoom());
+document.getElementById("c-zoom").textContent = map.getZoom();
+
+/* ── LAYER MANAGER ──────────────────────────────────────────────── */
+const divIcon = (cls, html="") => L.divIcon({className:"", html:`<div class="${cls}">${html}</div>`, iconSize:[16,16], iconAnchor:[8,8]});
+
+const LAYERS = {
+  transmission:{ label:"Transmission Lines", kind:"arcgis", cluster:false,
+    style:f => ({color:"#EAFF00", weight:1.6, opacity:.9}),
+    filter:f => voltOf(f) >= state.minKV },
+  substations:{ label:"Substations", kind:"arcgis", cluster:true,
+    point:() => divIcon("sub-icon") },
+  plants:{ label:"Generation Plants", kind:"arcgis", cluster:true,
+    point:() => divIcon("plant-icon") },
+  rail:{ label:"Class I Railroads", kind:"arcgis", cluster:false,
+    style:() => ({color:"#4a4f57", weight:2.4, dashArray:"7 5", opacity:.95}) },
+  airports:{ label:"Freight Airports", kind:"arcgis", cluster:true,
+    point:() => divIcon("apt-icon","✈") },
+  ports:{ label:"Marine Ports", kind:"arcgis", cluster:true,
+    point:() => divIcon("port-icon","⚓") },
+  flood:{ label:"FEMA Flood Hazard", kind:"arcgis", cluster:false,
+    style:() => ({color:"#4A90D9", weight:1, fillColor:"#3B82F6", fillOpacity:0.35}) },
+  faults:{ label:"USGS Fault Lines", kind:"arcgis", cluster:false,
+    style:() => ({color:"#F0565E", weight:1.8, opacity:.9}) },
+  aquifer:{ label:"Aquifer Scarcity", kind:"demo-only", cluster:false,
+    style:() => ({color:"#F0565E", weight:1, dashArray:"4 4", fillColor:"#F0565E", fillOpacity:0.18}) },
+  warehouses:{ label:"Logistics Warehouses", kind:"overpass", cluster:true,
+    oql:b => `[out:json][timeout:20];(node["building"="warehouse"](${b});way["building"="warehouse"](${b}););out center 200;`,
+    point:() => divIcon("wh-icon") },
+  industrial:{ label:"Industrial Zoning", kind:"overpass", cluster:false,
+    oql:b => `[out:json][timeout:20];(way["landuse"="industrial"](${b}););out geom 120;`,
+    style:() => ({color:"#a078ff", weight:1, fillColor:"#a078ff", fillOpacity:0.22}) }
+};
+
+const state = {
+  minKV: 115,
+  on: new Set(),
+  data: {},              // layerId -> GeoJSON currently loaded
+  leaflet: {},           // layerId -> L.LayerGroup on map
+  live: {},              // layerId -> "ok" | "demo" | "err"
+  clicked: null,         // {lat,lng, score, deps}
+  activeSiteId: null,
+  queryOverlay: L.layerGroup().addTo(map),
+  clickMarker: null
+};
+
+function voltOf(f){
+  const p = f.properties || {};
+  return Number(p.VOLTAGE ?? p.MAX_VOLT ?? p.voltage ?? 0) || 0;
+}
+function bboxParam(){
+  const b = map.getBounds();
+  return { geometry: [b.getWest(),b.getSouth(),b.getEast(),b.getNorth()].join(","),
+           overpass: [b.getSouth(),b.getWest(),b.getNorth(),b.getEast()].join(",") };
+}
+
+async function fetchArcgis(id){
+  const url = new URL(CONFIG.endpoints[id]);
+  const p = url.searchParams;
+  p.set("where","1=1"); p.set("outFields","*"); p.set("f","geojson");
+  p.set("geometry", bboxParam().geometry);
+  p.set("geometryType","esriGeometryEnvelope"); p.set("inSR","4326"); p.set("spatialRel","esriSpatialRelIntersects");
+  p.set("resultRecordCount", String(CONFIG.maxRecords)); p.set("outSR","4326");
+  const r = await fetch(url, {signal: AbortSignal.timeout(15000)});
+  if (!r.ok) throw new Error(id + " HTTP " + r.status);
+  const j = await r.json();
+  if (!j.features) throw new Error(id + " no features array");
+  return j;
+}
+
+async function fetchOverpass(id){
+  const q = LAYERS[id].oql(bboxParam().overpass);
+  const r = await fetch(CONFIG.endpoints.overpass,{
+    method:"POST", body:"data=" + encodeURIComponent(q),
+    headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    signal: AbortSignal.timeout(25000)
+  });
+  if (!r.ok) throw new Error("overpass HTTP " + r.status);
+  const j = await r.json();
+  const feats = [];
+  for (const el of j.elements || []){
+    if (el.type === "node") feats.push(pt(el.lon, el.lat, el.tags || {}));
+    else if (el.type === "way" && el.center && !el.geometry) feats.push(pt(el.center.lon, el.center.lat, el.tags || {}));
+    else if (el.type === "way" && el.geometry){
+      const ring = el.geometry.map(g => [g.lon, g.lat]);
+      feats.push(pg(ring, el.tags || {}));
+    }
+  }
+  return fc(feats);
+}
+
+let fetchDepth = 0;
+function banner(onOff){
+  fetchDepth += onOff ? 1 : -1;
+  document.getElementById("fetch-banner").style.display = fetchDepth > 0 ? "block" : "none";
+}
+
+async function loadLayer(id){
+  const def = LAYERS[id];
+  setLayerStatus(id, "load", "…");
+  banner(true);
+  let data, live;
+  try {
+    if (def.kind === "arcgis") data = await fetchArcgis(id);
+    else if (def.kind === "overpass") data = await fetchOverpass(id);
+    else throw new Error("demo-only");
+    if (!data.features.length && DEMO[id]?.features.length){ data = DEMO[id]; live = "demo"; }
+    else live = "ok";
+  } catch (err) {
+    console.warn("[Locus] live feed unavailable for " + id + " — using demo extract.", err.message);
+    data = DEMO[id] || fc([]); live = (id === "aquifer") ? "demo" : "err-demo";
+  }
+  banner(false);
+  state.data[id] = data; state.live[id] = live;
+  renderLayer(id);
+  refreshTopMetrics();
+}
+
+function renderLayer(id){
+  const def = LAYERS[id];
+  if (state.leaflet[id]){ map.removeLayer(state.leaflet[id]); delete state.leaflet[id]; }
+  if (!state.on.has(id) || !state.data[id]) { updateCount(id); return; }
+
+  const geo = L.geoJSON(state.data[id], {
+    style: def.style,
+    filter: def.filter || (() => true),
+    pointToLayer: (f, latlng) => def.point ? L.marker(latlng,{icon:def.point(f)}) : L.circleMarker(latlng,{radius:4,color:"#fff"}),
+    onEachFeature: (f, lyr) => {
+      lyr.on("click", ev => { L.DomEvent.stopPropagation(ev); inspectFeature(id, f, ev.latlng); });
+    }
+  });
+
+  let grp;
+  if (def.cluster && typeof L.markerClusterGroup === "function"){
+    grp = L.markerClusterGroup({maxClusterRadius:44, showCoverageOnHover:false});
+    grp.addLayer(geo);
+  } else grp = geo;
+
+  grp.addTo(map);
+  state.leaflet[id] = grp;
+  updateCount(id);
+}
+
+function visibleCount(id){
+  const d = state.data[id]; if (!d) return 0;
+  const flt = LAYERS[id].filter || (() => true);
+  return d.features.filter(flt).length;
+}
+function updateCount(id){
+  const row = document.querySelector(`[data-layer="${id}"]`); if (!row) return;
+  row.querySelector("[data-cnt]").textContent = state.data[id] ? String(visibleCount(id)) : "—";
+  const st = state.live[id];
+  setLayerStatus(id, st === "ok" ? "ok" : st ? "demo" : "", st === "ok" ? "●" : st ? "◐" : "·");
+  const stEl = row.querySelector("[data-st]");
+  stEl.title = st === "ok" ? "Live feed" : st === "demo" ? "Live feed empty here — demo extract shown" : st ? "Live feed unreachable — demo extract shown" : "";
+}
+function setLayerStatus(id, cls, glyph){
+  const el = document.querySelector(`[data-layer="${id}"] [data-st]`); if (!el) return;
+  el.className = "st " + (cls || ""); el.textContent = glyph;
+}
+function refreshTopMetrics(){
+  const total = Object.keys(LAYERS).length;
+  const online = Object.values(state.live).filter(v => v === "ok").length;
+  const feats = Object.values(state.data).reduce((n,d) => n + (d?.features.length || 0), 0);
+  const m = document.getElementById("m-sources");
+  m.innerHTML = `<span class="dot${online < 1 ? " warn" : ""}"></span>${online} / ${total} online`;
+  document.getElementById("m-features").textContent = feats.toLocaleString();
+}
+
+/* refetch visible viewport-driven layers when the map settles */
+let moveTimer = null;
+map.on("moveend", () => {
+  clearTimeout(moveTimer);
+  moveTimer = setTimeout(() => { for (const id of state.on) loadLayer(id); }, 600);
+});
+
+/* ── GEOMETRY HELPERS ───────────────────────────────────────────── */
+const R_MI = 3958.8;
+function havMi(a, b){
+  const toR = d => d * Math.PI/180;
+  const dLat = toR(b.lat - a.lat), dLng = toR(b.lng - a.lng);
+  const s = Math.sin(dLat/2)**2 + Math.cos(toR(a.lat))*Math.cos(toR(b.lat))*Math.sin(dLng/2)**2;
+  return 2 * R_MI * Math.asin(Math.sqrt(s));
+}
+function nearestPoint(latlng, geojson, filter){
+  let best = null;
+  for (const f of geojson?.features || []){
+    if (filter && !filter(f)) continue;
+    for (const c of iterCoords(f.geometry)){
+      const d = havMi(latlng, {lat:c[1], lng:c[0]});
+      if (!best || d < best.d) best = {d, f};
+    }
+  }
+  return best;
+}
+function* iterCoords(g){
+  if (!g) return;
+  if (g.type === "Point") yield g.coordinates;
+  else if (g.type === "LineString") yield* g.coordinates;
+  else if (g.type === "MultiLineString" || g.type === "Polygon") for (const r of g.coordinates) yield* r;
+  else if (g.type === "MultiPolygon") for (const p of g.coordinates) for (const r of p) yield* r;
+}
+function pointInPolygonFeature(latlng, f){
+  const g = f.geometry; if (!g) return false;
+  const test = ring => {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++){
+      const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+      if (((yi > latlng.lat) !== (yj > latlng.lat)) &&
+          (latlng.lng < (xj - xi) * (latlng.lat - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  };
+  if (g.type === "Polygon") return test(g.coordinates[0]);
+  if (g.type === "MultiPolygon") return g.coordinates.some(p => test(p[0]));
+  return false;
+}
+function inAnyPolygon(latlng, geojson){
+  return (geojson?.features || []).some(f => pointInPolygonFeature(latlng, f));
+}
+
+/* ── FEATURE INSPECTOR ──────────────────────────────────────────── */
+const FRIENDLY = ["NAME","name","SITE_NAME","OWNER","OPERATOR","RROWNER","VOLTAGE","MAX_VOLT","MIN_VOLT","STATUS","TYPE","PRIM_FUEL","OPER_CAP","FLD_ZONE","ZONE_SUBTY","SFHA_TF","CLASS","CARGO","HARBOR","landuse","building","operator","INDEX","SOURCE"];
+function inspectFeature(layerId, f, latlng){
+  const box = document.getElementById("inspector");
+  const p = f.properties || {};
+  const keys = FRIENDLY.filter(k => p[k] !== undefined && p[k] !== null && p[k] !== "");
+  const extra = Object.keys(p).filter(k => !keys.includes(k) && p[k] !== null && p[k] !== "").slice(0, 10);
+  const rows = [...keys, ...extra].slice(0, 16).map(k =>
+    `<span class="k">${esc(k)}</span><span class="v" title="${esc(String(p[k]))}">${esc(String(p[k]))}</span>`).join("");
+  box.innerHTML = `
+    <div style="font-weight:700;font-size:13px;margin-bottom:2px">${esc(p.NAME || p.name || LAYERS[layerId].label)}</div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--faint);margin-bottom:8px">
+      ${LAYERS[layerId].label.toUpperCase()} · ${state.live[layerId] === "ok" ? "LIVE FEED" : "DEMO EXTRACT"}</div>
+    <div class="kv">${rows || '<span class="k">attributes</span><span class="v">none</span>'}</div>`;
+  if (latlng) scoreLocation(latlng, p.NAME || p.name);
+}
+function esc(s){ return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* ── LOCUS SCORING SYSTEM ───────────────────────────────────────── */
+const WEIGHTS = [
+  { id:"power",  name:"Grid proximity",     max:35, detail:d => d.sub ? `${d.sub.d.toFixed(1)} mi → ${esc(d.sub.f.properties.NAME || "substation")} (${voltOf(d.sub.f)} kV)` : "no substation in loaded extent" },
+  { id:"line",   name:"Transmission access",max:15, detail:d => d.line ? `${d.line.d.toFixed(1)} mi to ${voltOf(d.line.f)} kV corridor` : "no line in loaded extent" },
+  { id:"rail",   name:"Rail service",       max:15, detail:d => d.rail ? `${d.rail.d.toFixed(1)} mi to ${esc(d.rail.f.properties.RROWNER || "railroad")}` : "no railroad in loaded extent" },
+  { id:"logist", name:"Air / marine access",max:15, detail:d => d.log ? `${d.log.d.toFixed(1)} mi to ${esc(d.log.f.properties.NAME || "hub")}` : "no hub in loaded extent" },
+  { id:"flood",  name:"Flood exposure",     max:20, detail:d => d.inFlood ? "INSIDE mapped SFHA (100-yr)" : d.floodChecked ? "outside mapped flood zones" : "flood layer not loaded" }
+];
+function decay(mi, full, zero){ // full credit within `full` mi, none past `zero`
+  if (mi == null) return 0;
+  if (mi <= full) return 1;
+  if (mi >= zero) return 0;
+  return 1 - (mi - full) / (zero - full);
+}
+function computeScore(latlng){
+  const subs = state.data.substations, lines = state.data.transmission, rails = state.data.rail;
+  const hubs = fc([...(state.data.airports?.features || []), ...(state.data.ports?.features || [])]);
+  const d = {
+    sub:  nearestPoint(latlng, subs),
+    line: nearestPoint(latlng, lines, f => voltOf(f) >= state.minKV),
+    rail: nearestPoint(latlng, rails),
+    log:  nearestPoint(latlng, hubs),
+    floodChecked: !!state.data.flood,
+    inFlood: inAnyPolygon(latlng, state.data.flood)
+  };
+  const parts = {
+    power:  35 * decay(d.sub?.d,  1.5, 15) * (d.sub && voltOf(d.sub.f) >= 230 ? 1 : 0.85),
+    line:   15 * decay(d.line?.d, 1.0, 12),
+    rail:   15 * decay(d.rail?.d, 2.0, 20),
+    logist: 15 * decay(d.log?.d,  8.0, 60),
+    flood:  d.inFlood ? 0 : (d.floodChecked ? 20 : 12)
+  };
+  const total = Math.round(Object.values(parts).reduce((a,b) => a + b, 0));
+  return { total: Math.max(0, Math.min(100, total)), parts, d };
+}
+
+function scoreLocation(latlng, labelHint){
+  const res = computeScore(latlng);
+  state.clicked = { lat: latlng.lat, lng: latlng.lng, score: res.total, labelHint };
+  if (state.clickMarker) map.removeLayer(state.clickMarker);
+  state.clickMarker = L.marker(latlng, {icon: divIcon("pin-icon","◎")}).addTo(map);
+  drawGauge(res.total);
+  const verdict = res.total >= 75 ? ["STRONG CANDIDATE","var(--green)"] :
+                  res.total >= 50 ? ["CONDITIONAL","var(--amber)"] : ["CONSTRAINED","var(--red)"];
+  const gv = document.getElementById("gauge-verdict");
+  gv.textContent = verdict[0] + " · " + res.total + "/100"; gv.style.color = verdict[1];
+
+  document.getElementById("score-deps").innerHTML = WEIGHTS.map(w => {
+    const got = res.parts[w.id], pct = Math.round(100 * got / w.max);
+    const cls = pct >= 70 ? "good" : pct <= 25 ? "bad" : "";
+    return `<div class="dep ${cls}">
+      <div class="dep-head"><span class="dn">${w.name}</span><span class="dv">${Math.round(got)}/${w.max} · ${w.detail(res.d)}</span></div>
+      <div class="bar"><i style="width:${pct}%"></i></div></div>`;
+  }).join("");
+  document.getElementById("save-site-btn").style.display = "block";
+}
+
+function drawGauge(score){
+  const svg = document.getElementById("gauge");
+  const cx = 95, cy = 100, r = 78;
+  const a = deg => (180 + deg) * Math.PI / 180;
+  const arc = (a0, a1, rr) => {
+    const x0 = cx + rr * Math.cos(a(a0)), y0 = cy + rr * Math.sin(a(a0));
+    const x1 = cx + rr * Math.cos(a(a1)), y1 = cy + rr * Math.sin(a(a1));
+    return `M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${rr} ${rr} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+  };
+  let ticks = "";
+  for (let i = 0; i <= 20; i++){
+    const ang = a(i * 9), inner = i % 5 === 0 ? r - 12 : r - 7;
+    ticks += `<line x1="${cx + inner * Math.cos(ang)}" y1="${cy + inner * Math.sin(ang)}" x2="${cx + r * Math.cos(ang)}" y2="${cy + r * Math.sin(ang)}" stroke="${i % 5 === 0 ? "#3a4356" : "#232B3A"}" stroke-width="${i % 5 === 0 ? 2 : 1}"/>`;
+  }
+  const col = score >= 75 ? "#3ECF8E" : score >= 50 ? "#FFB020" : "#F0565E";
+  const needleAng = a(score * 1.8);
+  svg.innerHTML = `
+    <path d="${arc(0, 180, r - 3)}" stroke="#1A2130" stroke-width="6" fill="none"/>
+    ${ticks}
+    <path d="${arc(0, Math.max(1, score * 1.8), r - 3)}" stroke="${col}" stroke-width="6" fill="none" stroke-linecap="round"/>
+    <line x1="${cx}" y1="${cy}" x2="${cx + (r - 20) * Math.cos(needleAng)}" y2="${cy + (r - 20) * Math.sin(needleAng)}" stroke="${col}" stroke-width="2"/>
+    <circle cx="${cx}" cy="${cy}" r="4.5" fill="${col}"/>
+    <text x="${cx}" y="${cy - 22}" text-anchor="middle" style="font-family:var(--mono)" font-size="26" font-weight="700" fill="#D7DEE9">${score}</text>`;
+}
+drawGauge(0);
+
+map.on("click", e => scoreLocation(e.latlng));
+
+/* ── CUSTOM SPATIAL QUERY ───────────────────────────────────────── */
+document.getElementById("q-run").addEventListener("click", async () => {
+  if (!state.data.substations) await loadLayer("substations");
+  if (document.getElementById("q-flood").classList.contains("on") && !state.data.flood) await loadLayer("flood");
+  state.queryOverlay.clearLayers();
+  const distIn = Number(document.getElementById("q-dist").value) || 5;
+  const unit = document.getElementById("q-unit").value;
+  const distMi = unit === "km" ? distIn * 0.621371 : distIn;
+  const minKV = Number(document.getElementById("q-kv").value) || 0;
+  const exclFlood = document.getElementById("q-flood").classList.contains("on");
+
+  const subs = (state.data.substations?.features || []).filter(f => voltOf(f) >= minKV);
+  for (const s of subs){
+    const [lng, lat] = s.geometry.coordinates;
+    L.circle([lat, lng], { radius: distMi * 1609.34, color:"#FFB020", weight:1.2, fillColor:"#FFB020", fillOpacity:0.07, dashArray:"5 5" })
+      .bindPopup(`<b>${esc(s.properties.NAME || "Substation")}</b><br>${voltOf(s)} kV · qualifying buffer ${distIn} ${unit}`)
+      .addTo(state.queryOverlay);
+  }
+  const sites = await Store.list();
+  let pass = 0;
+  for (const st of sites){
+    const ll = {lat: st.latitude, lng: st.longitude};
+    const near = subs.some(s => havMi(ll, {lat:s.geometry.coordinates[1], lng:s.geometry.coordinates[0]}) <= distMi);
+    const flooded = exclFlood && inAnyPolygon(ll, state.data.flood);
+    const ok = near && !flooded; if (ok) pass++;
+    L.circleMarker(ll, {radius:7, color: ok ? "#3ECF8E" : "#F0565E", weight:2, fillOpacity:.5})
+      .bindPopup(`<b>${esc(st.site_name)}</b><br>${ok ? "MEETS" : "FAILS"} criteria${flooded ? " · inside SFHA" : ""}${!near ? " · beyond substation radius" : ""}`)
+      .addTo(state.queryOverlay);
+  }
+  document.getElementById("q-result").innerHTML =
+    `<b style="color:var(--amber)">${subs.length}</b> substations ≥ ${minKV} kV buffered at ${distIn} ${unit}` +
+    (sites.length ? ` · <b style="color:var(--green)">${pass}/${sites.length}</b> saved sites qualify` : "") +
+    (exclFlood ? " · SFHA exclusion on" : "");
+});
+document.getElementById("q-clear").addEventListener("click", () => {
+  state.queryOverlay.clearLayers();
+  document.getElementById("q-result").textContent = "Query overlay cleared.";
+});
+
+/* ── SAVED SITES (Section C) ────────────────────────────────────── */
+async function renderSites(){
+  const sites = await Store.list();
+  document.getElementById("m-saved").textContent = sites.length;
+  const box = document.getElementById("sites-list");
+  if (!sites.length){
+    box.innerHTML = '<div class="empty">No sites saved yet. Score a location, then save it to build your evaluation registry.</div>';
+    document.getElementById("site-editor").style.display = "none";
+    return;
+  }
+  box.innerHTML = sites.map(s => {
+    const badge = (s.status || "Prospect").toLowerCase().replace(" ", "-").includes("review") ? "review" :
+                  (s.status === "Approved" ? "approved" : s.status === "Rejected" ? "rejected" : "prospect");
+    const col = s.feasibility_score >= 75 ? "var(--green)" : s.feasibility_score >= 50 ? "var(--amber)" : "var(--red)";
+    return `<div class="site-item ${s.id === state.activeSiteId ? "active" : ""}" data-site="${s.id}">
+      <div class="r1"><span class="nm">${esc(s.site_name)}</span>
+        <span class="badge ${badge}">${esc(s.status || "Prospect")}</span>
+        <span class="score-chip" style="color:${col}">${s.feasibility_score ?? "—"}</span></div>
+      <div class="r2"><span>${esc(s.site_type || "")}</span><span>${Number(s.latitude).toFixed(4)}, ${Number(s.longitude).toFixed(4)}</span></div>
+    </div>`;
+  }).join("");
+  box.querySelectorAll("[data-site]").forEach(el => el.addEventListener("click", () => openSite(Number(el.dataset.site))));
+}
+
+async function openSite(id){
+  const sites = await Store.list();
+  const s = sites.find(x => x.id === id); if (!s) return;
+  state.activeSiteId = id;
+  map.flyTo([s.latitude, s.longitude], Math.max(map.getZoom(), 13), {duration: 1.1});
+  document.getElementById("site-editor").style.display = "block";
+  document.getElementById("ed-name").value = s.site_name;
+  document.getElementById("ed-type").value = s.site_type || "Data Center";
+  document.getElementById("ed-status").value = s.status || "Prospect";
+  document.getElementById("ed-notes").value = s.user_notes || "";
+  renderSites();
+  setTimeout(() => scoreLocation(L.latLng(s.latitude, s.longitude), s.site_name), 900);
+}
+
+document.getElementById("save-site-btn").addEventListener("click", async () => {
+  if (!state.clicked) return;
+  const c = state.clicked;
+  const name = c.labelHint ? `Site @ ${c.labelHint}` : `Candidate ${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}`;
+  const site = await Store.create({
+    user_id: 1, site_name: name, latitude: c.lat, longitude: c.lng,
+    site_type: "Data Center", status: "Prospect",
+    feasibility_score: c.score, user_notes: ""
+  });
+  state.activeSiteId = site.id;
+  toast("Site saved — " + site.site_name);
+  await renderSites(); openSite(site.id);
+});
+
+document.getElementById("ed-save").addEventListener("click", async () => {
+  if (!state.activeSiteId) return;
+  await Store.update(state.activeSiteId, {
+    site_name: document.getElementById("ed-name").value.trim() || "Unnamed site",
+    site_type: document.getElementById("ed-type").value,
+    status: document.getElementById("ed-status").value,
+    user_notes: document.getElementById("ed-notes").value
+  });
+  toast("Changes saved"); renderSites();
+});
+document.getElementById("ed-delete").addEventListener("click", async () => {
+  if (!state.activeSiteId) return;
+  await Store.remove(state.activeSiteId);
+  state.activeSiteId = null;
+  document.getElementById("site-editor").style.display = "none";
+  toast("Site deleted"); renderSites();
+});
+
+let toastTimer;
+function toast(msg){
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+/* ── UI WIRING ──────────────────────────────────────────────────── */
+document.querySelectorAll("[data-acc] .acc-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const sec = btn.closest(".acc");
+    const open = sec.classList.toggle("open");
+    btn.setAttribute("aria-expanded", String(open));
+  });
+});
+document.querySelectorAll(".layer-row .switch:not(#q-flood)").forEach(sw => {
+  sw.addEventListener("click", () => {
+    const id = sw.closest("[data-layer]").dataset.layer;
+    const on = sw.classList.toggle("on");
+    sw.setAttribute("aria-checked", String(on));
+    if (on){ state.on.add(id); state.data[id] ? renderLayer(id) : loadLayer(id); }
+    else { state.on.delete(id); renderLayer(id); }
+  });
+});
+document.getElementById("q-flood").addEventListener("click", e => {
+  const on = e.currentTarget.classList.toggle("on");
+  e.currentTarget.setAttribute("aria-checked", String(on));
+});
+const kvSlider = document.getElementById("kv-slider");
+kvSlider.addEventListener("input", () => {
+  state.minKV = Number(kvSlider.value);
+  document.getElementById("kv-val").textContent = state.minKV + " kV";
+  if (state.on.has("transmission")) renderLayer("transmission");
+});
+
+/* ── BOOT ───────────────────────────────────────────────────────── */
+(function boot(){
+  const modes = {API:"DB: EXPRESS API", PERSISTENT:"DB: PERSISTENT", SESSION:"DB: SESSION ONLY"};
+  document.getElementById("storage-mode").textContent = modes[Store.mode];
+  renderSites();
+  // default-on layers for an immediately legible first paint
+  for (const id of ["transmission","substations","flood"]){
+    const sw = document.querySelector(`[data-layer="${id}"] .switch`);
+    sw.classList.add("on"); sw.setAttribute("aria-checked","true");
+    state.on.add(id); loadLayer(id);
+  }
+})();
+</script>
+</body>
+</html>
